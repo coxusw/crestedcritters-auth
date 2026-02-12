@@ -10,21 +10,17 @@ app.use(cors());
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 
-// IMPORTANT: Your public Render URL (no trailing slash)
+// Your public Render URL (no trailing slash)
 const BASE_URL = "https://crestedcritters-auth.onrender.com";
-
-// IMPORTANT: Your GitHub Pages origin (no repo path)
-const SITE_ORIGIN = "https://coxusw.github.io";
 
 app.get("/", (req, res) => {
   res.send("Crested Critters OAuth Proxy is running");
 });
 
+// Start OAuth (Decap opens this in a popup)
 app.get("/auth", (req, res) => {
   const scope = req.query.scope || "repo";
   const state = crypto.randomBytes(16).toString("hex");
-
-  // Force the redirect URI to match what’s in your GitHub OAuth App
   const redirectUri = `${BASE_URL}/auth/callback`;
 
   const url =
@@ -37,6 +33,7 @@ app.get("/auth", (req, res) => {
   res.redirect(url);
 });
 
+// OAuth callback from GitHub
 app.get("/auth/callback", async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).send("No code provided");
@@ -49,10 +46,16 @@ app.get("/auth/callback", async (req, res) => {
     );
 
     const access_token = response.data.access_token;
-    if (!access_token) return res.status(500).send("Failed to get access token");
+    if (!access_token) {
+      console.error("No access_token returned:", response.data);
+      return res.status(500).send("Failed to get access token");
+    }
 
+    // Decap expects this exact message format:
     const payload = JSON.stringify({ token: access_token, provider: "github" });
+    const msg = `authorization:github:success:${payload}`;
 
+    // Return a tiny page that posts the token to the opener and closes
     res.setHeader("Content-Type", "text/html");
     res.send(`<!doctype html>
 <html>
@@ -60,12 +63,18 @@ app.get("/auth/callback", async (req, res) => {
   <body>
     <script>
       (function () {
-        var msg = 'authorization:github:success:${payload.replace(/'/g, "\\'")}';
-        if (window.opener) {
-          window.opener.postMessage(msg, '${SITE_ORIGIN}');
-          window.close();
-        } else {
-          document.body.innerText = 'Authorized, but no opener window found.';
+        var msg = ${JSON.stringify(msg)};
+        try {
+          if (window.opener && window.opener.postMessage) {
+            // Use '*' to avoid origin-mismatch causing silent failures.
+            window.opener.postMessage(msg, '*');
+            // Give the opener a moment to process the message
+            setTimeout(function(){ window.close(); }, 200);
+          } else {
+            document.body.innerText = 'Authorized, but no opener window found.';
+          }
+        } catch (e) {
+          document.body.innerText = 'Authorized, but failed to message opener.';
         }
       })();
     </script>
