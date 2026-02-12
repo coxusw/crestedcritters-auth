@@ -51,8 +51,9 @@ app.get("/auth/callback", async (req, res) => {
 
     // Redirect back to CMS with token
     res.redirect(
-      `https://coxusw.github.io/CrestedCritters/admin/#access_token=${access_token}`
-    );
+  `https://coxusw.github.io/CrestedCritters/admin/#access_token=${access_token}`
+);
+
   } catch (error) {
     console.error(error);
     res.status(500).send("Authentication failed");
