@@ -6,16 +6,20 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
-// Root route for health check
+// Health check route (helps confirm the service is up)
 app.get("/", (req, res) => {
   res.send("Crested Critters OAuth Proxy is running");
 });
 
-// Read GitHub OAuth credentials from environment
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 
+if (!CLIENT_ID || !CLIENT_SECRET) {
+  console.warn("Missing CLIENT_ID or CLIENT_SECRET env vars.");
+}
+
 // Start GitHub OAuth flow
+// Decap may call this with extra query params; we can ignore them safely.
 app.get("/auth", (req, res) => {
   const redirect = `https://github.com/login/oauth/authorize?client_id=${CLIENT_ID}&scope=repo`;
   res.redirect(redirect);
@@ -30,32 +34,34 @@ app.get("/auth/callback", async (req, res) => {
   }
 
   try {
-    // Exchange code for access token
+    // Exchange the code for an access token
     const response = await axios.post(
       "https://github.com/login/oauth/access_token",
       {
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
-        code: code
+        code: code,
       },
       {
-        headers: { Accept: "application/json" }
+        headers: { Accept: "application/json" },
       }
     );
 
     const access_token = response.data.access_token;
 
     if (!access_token) {
+      console.error("No access_token returned:", response.data);
       return res.status(500).send("Failed to get access token");
     }
 
-    // Redirect back to CMS with token
+    // IMPORTANT:
+    // Decap expects the token in the hash like: #access_token=...
+    // NOT: #/access_token=...
     res.redirect(
-  `https://coxusw.github.io/CrestedCritters/admin/#access_token=${access_token}`
-);
-
+      `https://coxusw.github.io/CrestedCritters/admin/#access_token=${access_token}`
+    );
   } catch (error) {
-    console.error(error);
+    console.error("Auth callback error:", error?.response?.data || error);
     res.status(500).send("Authentication failed");
   }
 });
