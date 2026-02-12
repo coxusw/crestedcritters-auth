@@ -59,7 +59,7 @@ app.get("/auth/callback", async (req, res) => {
   }
 });
 
-// Use PORT from Render or fallback for local testing
+// Listen on the port Render provides
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`OAuth proxy running on port ${PORT}`);
