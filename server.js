@@ -10,17 +10,19 @@ app.use(cors());
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 
-// Your public Render URL (no trailing slash)
+// Your public Render URL (NO trailing slash)
 const BASE_URL = "https://crestedcritters-auth.onrender.com";
 
 app.get("/", (req, res) => {
-  res.send("Crested Critters OAuth Proxy is running");
+  res.status(200).send("Crested Critters OAuth Proxy is running");
 });
 
-// Start OAuth (Decap opens this in a popup)
+// Decap opens /auth in a popup
 app.get("/auth", (req, res) => {
   const scope = req.query.scope || "repo";
   const state = crypto.randomBytes(16).toString("hex");
+
+  // MUST match the GitHub OAuth App callback URL exactly
   const redirectUri = `${BASE_URL}/auth/callback`;
 
   const url =
@@ -33,7 +35,7 @@ app.get("/auth", (req, res) => {
   res.redirect(url);
 });
 
-// OAuth callback from GitHub
+// GitHub redirects here
 app.get("/auth/callback", async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).send("No code provided");
@@ -52,12 +54,13 @@ app.get("/auth/callback", async (req, res) => {
     }
 
     // Decap expects this exact message format:
+    // authorization:<provider>:success:<json payload>
     const payload = JSON.stringify({ token: access_token, provider: "github" });
     const msg = `authorization:github:success:${payload}`;
 
-    // Return a tiny page that posts the token to the opener and closes
-    res.setHeader("Content-Type", "text/html");
-    res.send(`<!doctype html>
+    // Return HTML that postMessages the token to the opener and closes the popup
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(`<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Authorizing…</title></head>
   <body>
@@ -66,9 +69,7 @@ app.get("/auth/callback", async (req, res) => {
         var msg = ${JSON.stringify(msg)};
         try {
           if (window.opener && window.opener.postMessage) {
-            // Use '*' to avoid origin-mismatch causing silent failures.
             window.opener.postMessage(msg, '*');
-            // Give the opener a moment to process the message
             setTimeout(function(){ window.close(); }, 200);
           } else {
             document.body.innerText = 'Authorized, but no opener window found.';
