@@ -17,6 +17,7 @@ app.get("/", (req, res) => {
   res.status(200).send("Crested Critters OAuth Proxy is running");
 });
 
+// Decap opens this in a popup
 app.get("/auth", (req, res) => {
   const scope = req.query.scope || "repo";
   const state = crypto.randomBytes(16).toString("hex");
@@ -32,6 +33,7 @@ app.get("/auth", (req, res) => {
   res.redirect(url);
 });
 
+// GitHub redirects here
 app.get("/auth/callback", async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).send("No code provided");
@@ -49,30 +51,42 @@ app.get("/auth/callback", async (req, res) => {
       return res.status(500).send("Failed to get access token");
     }
 
-    // ✅ Decap expects EXACTLY: authorization:github:success:{"token":"..."}
-    const payload = JSON.stringify({ token: access_token });
-    const msg = `authorization:github:success:${payload}`;
+    // Important: include provider inside JSON (many Decap/NetlifyCMS examples do)
+    const postMsgContent = { token: access_token, provider: "github" };
+    const successMsg = `authorization:github:success:${JSON.stringify(
+      postMsgContent
+    )}`;
 
+    // Handshake pattern:
+    // 1) Popup tells opener "authorizing:github"
+    // 2) Opener responds (popup receives event with correct origin)
+    // 3) Popup sends success message back to opener using e.origin as targetOrigin
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(`<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Authorizing…</title></head>
   <body>
+    <p>Authorizing…</p>
     <script>
       (function () {
-        var msg = ${JSON.stringify(msg)};
-        function send() {
+        function receiveMessage(e) {
           try {
-            if (window.opener && window.opener.postMessage) {
-              window.opener.postMessage(msg, '*');
-            }
-          } catch (e) {}
+            // send message to main window with the app
+            window.opener.postMessage(${JSON.stringify(successMsg)}, e.origin);
+            setTimeout(function(){ window.close(); }, 300);
+          } catch (err) {
+            document.body.innerText = "Authorized, but failed to message opener.";
+          }
         }
-        // Send twice in case the opener listener registers a moment later
-        send();
-        setTimeout(send, 300);
-        // Close after a short delay
-        setTimeout(function(){ window.close(); }, 1200);
+
+        window.addEventListener("message", receiveMessage, false);
+
+        // kick off the handshake
+        if (window.opener && window.opener.postMessage) {
+          window.opener.postMessage("authorizing:github", "*");
+        } else {
+          document.body.innerText = "Authorized, but no opener window found.";
+        }
       })();
     </script>
   </body>
