@@ -17,12 +17,9 @@ app.get("/", (req, res) => {
   res.status(200).send("Crested Critters OAuth Proxy is running");
 });
 
-// Decap opens /auth in a popup
 app.get("/auth", (req, res) => {
   const scope = req.query.scope || "repo";
   const state = crypto.randomBytes(16).toString("hex");
-
-  // MUST match the GitHub OAuth App callback URL exactly
   const redirectUri = `${BASE_URL}/auth/callback`;
 
   const url =
@@ -35,7 +32,6 @@ app.get("/auth", (req, res) => {
   res.redirect(url);
 });
 
-// GitHub redirects here
 app.get("/auth/callback", async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).send("No code provided");
@@ -53,12 +49,10 @@ app.get("/auth/callback", async (req, res) => {
       return res.status(500).send("Failed to get access token");
     }
 
-    // Decap expects this exact message format:
-    // authorization:<provider>:success:<json payload>
-    const payload = JSON.stringify({ token: access_token, provider: "github" });
+    // ✅ Decap expects EXACTLY: authorization:github:success:{"token":"..."}
+    const payload = JSON.stringify({ token: access_token });
     const msg = `authorization:github:success:${payload}`;
 
-    // Return HTML that postMessages the token to the opener and closes the popup
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(`<!doctype html>
 <html>
@@ -67,16 +61,18 @@ app.get("/auth/callback", async (req, res) => {
     <script>
       (function () {
         var msg = ${JSON.stringify(msg)};
-        try {
-          if (window.opener && window.opener.postMessage) {
-            window.opener.postMessage(msg, '*');
-            setTimeout(function(){ window.close(); }, 200);
-          } else {
-            document.body.innerText = 'Authorized, but no opener window found.';
-          }
-        } catch (e) {
-          document.body.innerText = 'Authorized, but failed to message opener.';
+        function send() {
+          try {
+            if (window.opener && window.opener.postMessage) {
+              window.opener.postMessage(msg, '*');
+            }
+          } catch (e) {}
         }
+        // Send twice in case the opener listener registers a moment later
+        send();
+        setTimeout(send, 300);
+        // Close after a short delay
+        setTimeout(function(){ window.close(); }, 1200);
       })();
     </script>
   </body>
